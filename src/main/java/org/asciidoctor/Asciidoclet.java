@@ -20,11 +20,15 @@ import org.asciidoctor.asciidoclet.*;
  *
  * [source,xml]
  * ----
- * include::pom.xml[tags=pom_include]
+ * include::pom.xml[tags=pom_include,indent=0]
  * ----
  *
  * <1> The -includes-basedir option must be set, typically this is the project root. It allows
  * source inclusions within javadocs, relative to the specified directory.
+ *
+ * <2> The -overview option may refer to an Asciidoc file. If the file's extension does not match
+ * one of `.ad`, `.adoc`, `.asciidoc` or `.txt`, then the file is ignored and will be processed
+ * by the standard doclet as an HTML overview.
  *
  * == Examples
  * 
@@ -221,8 +225,8 @@ public class Asciidoclet extends Doclet {
         String baseDir = getBaseDir(rootDoc.options());
         AsciidoctorRenderer renderer = new AsciidoctorRenderer(baseDir, rootDoc);
         try {
-            iterator.render(rootDoc, renderer);
-            return standardAdapter.start(rootDoc);
+            return iterator.render(rootDoc, renderer) &&
+                    standardAdapter.start(rootDoc);
         } finally {
             renderer.cleanup();
         }
