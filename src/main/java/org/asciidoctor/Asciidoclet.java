@@ -1,10 +1,16 @@
 package org.asciidoctor;
 
+import com.google.common.io.Files;
+import com.google.common.io.Resources;
 import com.sun.javadoc.DocErrorReporter;
 import com.sun.javadoc.Doclet;
 import com.sun.javadoc.LanguageVersion;
 import com.sun.javadoc.RootDoc;
 import org.asciidoctor.asciidoclet.*;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.URL;
 
 /**
  * = Asciidoclet
@@ -23,15 +29,14 @@ import org.asciidoctor.asciidoclet.*;
  * include::pom.xml[tags=pom_include,indent=0]
  * ----
  *
- * <1> The `-include-basedir` option must be set, typically this is the project root. It allows
- * source inclusions within javadocs, relative to the specified directory. +
- * The `-attributes` option takes a *quoted string* containing a list of attributes that will be
- * passed to Asciidoctor. The string may contain one or more `attrname` or `attrname=value`
- * values, separated by *semicolons*.
+ * <1> Use the `additionalparam` parameter to pass Asciidoclet parameters to javadoc. 
+ *     See <<doclet-options>>.
  *
- * <2> The `-overview` option may refer to an Asciidoc file. If the file's extension does not match
- * one of `.ad`, `.adoc`, `.asciidoc` or `.txt`, then the file is ignored and will be processed
- * by the standard doclet as an HTML overview.
+ * <2> The `-overview` option may refer to an Asciidoc file, see <<doclet-options>>.
+ * 
+ * == Doclet Options
+ *
+ * include::README.asciidoc[tags=doclet-options]
  *
  * == Examples
  *
@@ -166,7 +171,7 @@ import org.asciidoctor.asciidoclet.*;
  * +
  * IMPORTANT: Check this out!
  *
- * @author {author}
+ * @author https://github.com/johncarl81[John Ericksen]
  * @version {project_version}
  * @see org.asciidoctor.Asciidoclet
  * @since 0.1.0
@@ -177,18 +182,21 @@ public class Asciidoclet extends Doclet {
     private final RootDoc rootDoc;
     private final DocletOptions docletOptions;
     private final DocletIterator iterator;
+    private final Stylesheets stylesheets;
 
     public Asciidoclet(RootDoc rootDoc) {
         this.rootDoc = rootDoc;
         this.docletOptions = new DocletOptions(rootDoc);
         this.iterator = new DocletIterator(docletOptions);
+        this.stylesheets = new Stylesheets(docletOptions, rootDoc);
     }
 
     // test use
-    Asciidoclet(RootDoc rootDoc, DocletIterator iterator) {
+    Asciidoclet(RootDoc rootDoc, DocletIterator iterator, Stylesheets stylesheets) {
         this.rootDoc = rootDoc;
         this.docletOptions = new DocletOptions(rootDoc);
         this.iterator = iterator;
+        this.stylesheets = stylesheets;
     }
 
     /**
@@ -267,6 +275,11 @@ public class Asciidoclet extends Doclet {
     }
 
     boolean start(StandardAdapter standardDoclet) {
+        return run(standardDoclet)
+                && postProcess();
+    }
+
+    private boolean run(StandardAdapter standardDoclet) {
         AsciidoctorRenderer renderer = new AsciidoctorRenderer(docletOptions, rootDoc);
         try {
             return iterator.render(rootDoc, renderer) &&
@@ -274,5 +287,10 @@ public class Asciidoclet extends Doclet {
         } finally {
             renderer.cleanup();
         }
+    }
+
+    private boolean postProcess() {
+        if (docletOptions.stylesheetFile().isPresent()) return true;
+        return stylesheets.copy();
     }
 }

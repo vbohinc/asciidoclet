@@ -28,6 +28,7 @@ public class DocletIteratorTest {
         mockDoc = mock(RootDoc.class);
         mockPackageDoc = mock(PackageDoc.class);
         mockFieldDoc = mock(FieldDoc.class);
+        mockEnumFieldDoc = mock(FieldDoc.class);
         mockConstructorDoc = mock(ConstructorDoc.class);
         mockMethodDoc = mock(MethodDoc.class);
         mockClassDoc = mockClassDoc(ClassDoc.class, mockPackageDoc, mockFieldDoc, mockEnumFieldDoc, mockConstructorDoc, mockMethodDoc);

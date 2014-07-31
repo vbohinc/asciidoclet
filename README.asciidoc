@@ -93,6 +93,7 @@ public class Asciidoclet extends Doclet {
 
 The result is readable source and beautifully rendered Javadocs, the best of both worlds!
 
+// tag::usage[]
 == Usage
 
 Run javadoc with the `org.asciidoctor.Asciidoclet` doclet class.
@@ -177,6 +178,7 @@ Asciidoclet may be used via a doclet element in Ant's +javadoc+ task:
 using http://ant.apache.org/ivy/[Ivy] or similar.
 
 === Doclet Options
+// tag::doclet-options[]
 
 -include-basedir <dir>::
 Sets the base directory that will be used to resolve relative path names in Asciidoc `include::` directives.
@@ -186,12 +188,17 @@ This should be set to the project's root directory.
 Sets http://asciidoctor.org/docs/user-manual/#attributes[document attributes^] that will be expanded when processing javadoc comments.
 The argument is a string containing a list of attributes in the form of `key`, `key!` or `key=value`.
 Attributes must be separated by semicolons.
++
+The document attribute `javadoc` is set automatically by the doclet. 
+This may be useful for conditionally selecting content when using the same Asciidoc file for javadoc and other documentation.
 
 -overview <file>::
 Overview documentation can be generated from an Asciidoc file using the standard `-overview` option.
 Files matching `*.ad`, `*.adoc`, `*.asciidoc` or `*.txt` are processed by Asciidoclet.
 Other files are assumed to be HTML and will be processed by the standard doclet.
 
+// end::doclet-options[]
+// end::usage[]
 == Resources and help
 
 For more information:
