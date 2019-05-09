@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,102 +15,75 @@
  */
 package org.asciidoclet.asciidoclet;
 
-import com.sun.javadoc.*;
-import org.asciidoclet.asciidoclet.DocletIterator;
-import org.asciidoclet.asciidoclet.DocletOptions;
-import org.asciidoclet.asciidoclet.DocletRenderer;
+import java.io.OutputStream;
+import java.net.URI;
+import javax.tools.FileObject;
+import javax.tools.StandardJavaFileManager;
+import jdk.javadoc.doclet.DocletEnvironment;
+import jdk.javadoc.doclet.Reporter;
+import org.asciidoctor.Asciidoctor;
+import org.asciidoctor.Options;
 import org.junit.Before;
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * @author John Ericksen
  */
 public class DocletIteratorTest {
 
-    private DocletRenderer mockRenderer;
-    private RootDoc mockDoc;
-    private ClassDoc mockClassDoc;
-    private PackageDoc mockPackageDoc;
-    private FieldDoc mockFieldDoc;
-    private FieldDoc mockEnumFieldDoc;
-    private ConstructorDoc mockConstructorDoc;
-    private MethodDoc mockMethodDoc;
+    private DocletEnvironment mockEnvironment;
+    private Asciidoctor mockAsciidoctor;
+    private Reporter reporter;
+
+    private static final String RENDERED_FILE = "path/to/rendered/file.html";
+
 
     @Before
-    public void setup() {
-        mockRenderer = mock(DocletRenderer.class);
+    public void setup() throws Throwable {
+        mockEnvironment = mock(DocletEnvironment.class);
+        mockAsciidoctor = mock(Asciidoctor.class);
+        reporter = mock(Reporter.class);
 
-        mockDoc = mock(RootDoc.class);
-        mockPackageDoc = mock(PackageDoc.class);
-        mockFieldDoc = mock(FieldDoc.class);
-        mockEnumFieldDoc = mock(FieldDoc.class);
-        mockConstructorDoc = mock(ConstructorDoc.class);
-        mockMethodDoc = mock(MethodDoc.class);
-        mockClassDoc = mockClassDoc(ClassDoc.class, mockPackageDoc, mockFieldDoc, mockEnumFieldDoc, mockConstructorDoc, mockMethodDoc);
-
-        when(mockDoc.classes()).thenReturn(new ClassDoc[]{mockClassDoc});
-        when(mockDoc.options()).thenReturn(new String[][]{});
-    }
-
-    private <T extends ClassDoc> T mockClassDoc(Class<T> type, PackageDoc packageDoc, FieldDoc fieldDoc, FieldDoc enumConstants, ConstructorDoc constructorDoc, MethodDoc methodDoc) {
-        T classDoc = mock(type);
-        when(classDoc.containingPackage()).thenReturn(packageDoc);
-        when(classDoc.fields()).thenReturn(new FieldDoc[]{fieldDoc});
-        when(classDoc.constructors()).thenReturn(new ConstructorDoc[]{constructorDoc});
-        when(classDoc.methods()).thenReturn(new MethodDoc[]{methodDoc});
-        when(classDoc.enumConstants()).thenReturn(new FieldDoc[]{enumConstants});
-        return classDoc;
-    }
-
-    @Test
-    public void testIteration() {
-        new DocletIterator( DocletOptions.NONE).render(mockDoc, mockRenderer);
-
-        verify(mockRenderer).renderDoc(mockClassDoc);
-        verify(mockRenderer).renderDoc(mockFieldDoc);
-        verify(mockRenderer).renderDoc(mockConstructorDoc);
-        verify(mockRenderer).renderDoc(mockMethodDoc);
-        verify(mockRenderer).renderDoc(mockPackageDoc);
-        verify(mockRenderer).renderDoc(mockEnumFieldDoc);
-    }
-
-    @Test
-    public void testAnnotationIteration() {
-        AnnotationTypeDoc mockClassDoc = mockClassDoc(AnnotationTypeDoc.class, mockPackageDoc, mockFieldDoc, mockEnumFieldDoc, mockConstructorDoc, mockMethodDoc);
-        AnnotationTypeElementDoc mockAnnotationElement = mock(AnnotationTypeElementDoc.class);
-
-        when(mockDoc.classes()).thenReturn(new ClassDoc[]{mockClassDoc});
-        when(mockClassDoc.elements()).thenReturn(new AnnotationTypeElementDoc[]{mockAnnotationElement});
-
-        new DocletIterator(DocletOptions.NONE).render(mockDoc, mockRenderer);
-
-        verify(mockRenderer).renderDoc(mockClassDoc);
-        verify(mockRenderer).renderDoc(mockAnnotationElement);
+        FileObject mockFileObject = mock(FileObject.class);
+        when(mockFileObject.openOutputStream()).thenReturn(mock(OutputStream.class));
+        when(mockFileObject.toUri()).thenReturn(new URI(RENDERED_FILE));
+        StandardJavaFileManager mockFileManager = mock(StandardJavaFileManager.class);
+        when(mockFileManager.getFileForOutput(any(), any(), any(), any())).thenReturn(mockFileObject);
+        when(mockEnvironment.getJavaFileManager()).thenReturn(mockFileManager);
     }
 
     @Test
     public void testIgnoreNonAsciidocOverview() {
-        DocletIterator iterator = new DocletIterator(new DocletOptions(new String[][] {{DocletOptions.OVERVIEW, "foo.html"}}));
-
-        assertTrue(iterator.render(mockDoc, mockRenderer));
-        verify(mockDoc, never()).setRawCommentText(any(String.class));
+        DocletOptions docletOptions = DocletOptionsTest.newDocletOptions(new String[][] {{DocletOptions.OVERVIEW, "foo.html"}});
+        AsciidoctorRenderer renderer = new AsciidoctorRenderer(mockEnvironment, docletOptions, reporter, null, mockAsciidoctor);
+        assertTrue(renderer.renderAll());
+        verifyZeroInteractions(mockAsciidoctor);
     }
 
     @Test
     public void testFailIfAsciidocOverviewNotFound() {
-        DocletIterator iterator = new DocletIterator(new DocletOptions(new String[][] {{DocletOptions.OVERVIEW, "notfound.adoc"}}));
-
-        assertFalse(iterator.render(mockDoc, mockRenderer));
+        DocletOptions docletOptions = DocletOptionsTest.newDocletOptions(new String[][] {{DocletOptions.OVERVIEW, "notfound.adoc"}});
+        AsciidoctorRenderer renderer = new AsciidoctorRenderer(mockEnvironment, docletOptions, reporter, null, mockAsciidoctor);
+        assertFalse(renderer.renderAll());
     }
 
     @Test
     public void testOverviewFound() {
-        DocletIterator iterator = new DocletIterator(new DocletOptions(new String[][] {{DocletOptions.OVERVIEW, "src/main/java/overview.adoc"}}));
-        assertTrue(iterator.render(mockDoc, mockRenderer));
-        verify(mockRenderer).renderDoc(mockDoc);
+        DocletOptions docletOptions = DocletOptionsTest.newDocletOptions(new String[][] {{DocletOptions.OVERVIEW, "src/main/java/overview.adoc"}});
+        AsciidoctorRenderer renderer = new AsciidoctorRenderer(mockEnvironment, docletOptions, reporter, null, mockAsciidoctor);
+        assertTrue(renderer.renderAll());
+        verify(mockAsciidoctor).render(anyString(), (Options)any());
+        assertTrue(renderer.getOverview().isPresent());
+        assertEquals(RENDERED_FILE, renderer.getOverview().get().getPath());
     }
 }

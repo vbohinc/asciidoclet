@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,23 @@
  */
 package org.asciidoclet.asciidoclet;
 
-import com.google.common.base.Optional;
-import com.google.common.base.Splitter;
-import com.google.common.collect.ImmutableList;
-import com.sun.javadoc.DocErrorReporter;
-import com.sun.javadoc.RootDoc;
-
 import java.io.File;
 import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
+import javax.tools.Diagnostic;
+import com.google.common.base.Splitter;
+import jdk.javadoc.doclet.Doclet;
+import jdk.javadoc.doclet.Reporter;
+import jdk.javadoc.doclet.StandardDoclet;
 
 /**
  * Provides an interface to the doclet options we are interested in.
@@ -37,6 +45,7 @@ public class DocletOptions {
     public static final String OVERVIEW = "-overview";
     public static final String BASEDIR = "--base-dir";
     public static final String STYLESHEET = "-stylesheetfile";
+    public static final String STYLESHEET_LONG = "--main-stylesheet";
     public static final String DESTDIR = "-d";
     public static final String ATTRIBUTE = "-a";
     public static final String ATTRIBUTE_LONG = "--attribute";
@@ -44,74 +53,129 @@ public class DocletOptions {
     public static final String GEM_PATH = "--gem-path";
     public static final String REQUIRE = "-r";
     public static final String REQUIRE_LONG = "--require";
+    public static final String PRESERVE_PREPROCESSED = "-pp";
+    public static final String PRESERVE_PREPROCESSED_LONG = "--preserve-preprocessed";
 
-    public static final DocletOptions NONE = new DocletOptions(new String[][]{});
+    private final StandardDoclet standardDoclet;
+    private final Map<String,Doclet.Option> asciidocletOptions;
+    private Optional<File> basedir = Optional.empty();
+    private Optional<File> overview = Optional.empty();
+    private Optional<File> stylesheet = Optional.empty();
+    private Optional<File> destdir = Optional.empty();
+    private Optional<File> preprocessDir = Optional.empty();
+    private Optional<File> attributesFile = Optional.empty();
+    private String gemPath;
+    private final List<String> requires = new ArrayList<>();
+    private Charset encoding = Charset.defaultCharset();
+    private final List<String> attributes = new ArrayList<>();
+    private boolean preservePreprocessed;
 
-    private final Optional<File> basedir;
-    private final Optional<File> overview;
-    private final Optional<File> stylesheet;
-    private final Optional<File> destdir;
-    private final Optional<File> attributesFile;
-    private final String gemPath;
-    private final List<String> requires;
-    private final Charset encoding;
-    private final List<String> attributes;
+    public DocletOptions(StandardDoclet standardDoclet) {
+        this.standardDoclet = standardDoclet;
 
-    public DocletOptions(RootDoc rootDoc) {
-        this(rootDoc.options());
+        Doclet.Option baseDirOption = new Option(BASEDIR, "Sets the base directory that will be used to resolve relative path names in Asciidoc include:: directives", 1, "<directory>") {
+            @Override
+            protected void process(List<String> arguments) {
+                basedir = Optional.of(new File(arguments.get(0)));
+            }
+        };
+        Doclet.Option attributeOption = new Option(List.of(ATTRIBUTE, ATTRIBUTE_LONG), "Sets document attributes that will be expanded in Javadoc comments.  The argument is a string containing a single attribute, or multiple attributes separated by commas", 1, "name[=value], ...") {
+            @Override
+            public void process(List<String> arguments) {
+                COMMA_WS.split(arguments.get(0)).forEach(attributes::add);
+            }
+        };
+        Doclet.Option attributesFileOption = new Option(ATTRIBUTES_FILE, "Read document attributes from an Asciidoc file. The attributes will be expanded in Javadoc comments", 1, "<file>") {
+            @Override
+            protected void process(List<String> arguments) {
+                attributesFile = Optional.of(new File(arguments.get(0)));
+            }
+        };
+        Doclet.Option requireOption = new Option(List.of(REQUIRE, REQUIRE_LONG), "Make the specified RubyGems library available to Asciidoctor’s JRuby runtime", 1, "<library>") {
+            @Override
+            protected void process(List<String> arguments) {
+                COMMA_WS.split(arguments.get(0)).forEach(requires::add);
+            }
+        };
+        Doclet.Option gemPathOption = new Option(GEM_PATH, "Sets the GEM_PATH for Asciidoctor’s JRuby runtime.  This option is only needed when using the --require option to load additional gems on the GEM_PATH", 1, "<path>") {
+            @Override
+            protected void process(List<String> arguments) {
+                gemPath = arguments.get(0);
+            }
+        };
+        Doclet.Option preserveOption = new Option(List.of(PRESERVE_PREPROCESSED, PRESERVE_PREPROCESSED_LONG), "Indicates that pre-processed source should be preserved rather than deleted", 0, "") {
+            @Override
+            protected void process(List<String> arguments) {
+                preservePreprocessed = true;
+            }
+        };
+
+        TreeMap<String,Doclet.Option> asciidocletOptions = new TreeMap<>();
+        asciidocletOptions.put(BASEDIR, baseDirOption);
+        asciidocletOptions.put(ATTRIBUTE, attributeOption);
+        asciidocletOptions.put(ATTRIBUTE_LONG, attributeOption);
+        asciidocletOptions.put(ATTRIBUTES_FILE, attributesFileOption);
+        asciidocletOptions.put(REQUIRE, requireOption);
+        asciidocletOptions.put(REQUIRE_LONG, requireOption);
+        asciidocletOptions.put(GEM_PATH, gemPathOption);
+        asciidocletOptions.put(PRESERVE_PREPROCESSED, preserveOption);
+        asciidocletOptions.put(PRESERVE_PREPROCESSED_LONG, preserveOption);
+        this.asciidocletOptions = Collections.unmodifiableMap(asciidocletOptions);
     }
 
-    public DocletOptions(String[][] options) {
-        File basedir = null;
-        File overview = null;
-        File stylesheet = null;
-        File destdir = null;
-        File attrsFile = null;
-        String gemPath = null;
-        ImmutableList.Builder<String> requires = ImmutableList.builder();
-        Charset encoding = Charset.defaultCharset();
-        ImmutableList.Builder<String> attrs = ImmutableList.builder();
-        for (String[] option : options) {
-            if (option.length > 0) {
-                if (BASEDIR.equals(option[0])) {
-                    basedir = new File(option[1]);
-                }
-                else if (OVERVIEW.equals(option[0])) {
-                    overview = new File(option[1]);
-                }
-                else if (STYLESHEET.equals(option[0])) {
-                    stylesheet = new File(option[1]);
-                }
-                else if (DESTDIR.equals(option[0])) {
-                    destdir = new File(option[1]);
-                }
-                else if (ENCODING.equals(option[0])) {
-                    encoding = Charset.forName(option[1]);
-                }
-                else if (ATTRIBUTE.equals(option[0]) || ATTRIBUTE_LONG.equals(option[0])) {
-                    attrs.addAll(COMMA_WS.split(option[1]));
-                }
-                else if (ATTRIBUTES_FILE.equals(option[0])) {
-                    attrsFile = new File(option[1]);
-                }
-                else if (GEM_PATH.equals(option[0])) {
-                    gemPath = option[1];
-                }
-                else if (REQUIRE.equals(option[0]) || REQUIRE_LONG.equals(option[0])) {
-                    requires.addAll(COMMA_WS.split(option[1]));
-                }
+    public Doclet.Option getAsciidocletOption(String name) {
+        return asciidocletOptions.get(name);
+    }
+
+    public Set<? extends Doclet.Option> getSupportedOptions() {
+        Set<Doclet.Option> standardOptions = standardDoclet.getSupportedOptions();
+        Map<String,Doclet.Option> optionsMap = new TreeMap<>(standardOptions.stream().collect(Collectors.toMap(option -> option.getNames().get(0), option -> option)));
+
+        // add interceptors for standard doclet options we care about
+        optionsMap.put(DESTDIR, new DelegatingOption(optionsMap.get(DESTDIR)) {
+            @Override
+            protected void process(List<String> arguments) {
+                File dir = new File(arguments.get(0));
+                destdir = Optional.of(dir);
+                preprocessDir = Optional.of(new File(dir.getParentFile(), dir.getName() + ".preprocess"));
             }
+        });
+        optionsMap.put(ENCODING, new DelegatingOption(optionsMap.get(ENCODING)) {
+            @Override
+            protected void process(List<String> arguments) {
+                encoding = Charset.forName(arguments.get(0));
+            }
+        });
+        optionsMap.put(OVERVIEW, new DelegatingOption(optionsMap.get(OVERVIEW)) {
+            @Override
+            protected void process(List<String> arguments) {
+                overview = Optional.of(new File(arguments.get(0)));
+            }
+        });
+        optionsMap.put(STYLESHEET_LONG, new DelegatingOption(optionsMap.get(STYLESHEET_LONG)) {
+            @Override
+            protected void process(List<String> arguments) {
+                stylesheet = Optional.of(new File(arguments.get(0)));
+            }
+        });
+
+        // add asciidoclet extension options
+        for (Doclet.Option option : asciidocletOptions.values()) {
+            optionsMap.put(option.getNames().get(0), option);
         }
 
-        this.basedir = Optional.fromNullable(basedir);
-        this.overview = Optional.fromNullable(overview);
-        this.stylesheet = Optional.fromNullable(stylesheet);
-        this.destdir = Optional.fromNullable(destdir);
-        this.encoding = encoding;
-        this.attributes = attrs.build();
-        this.attributesFile = Optional.fromNullable(attrsFile);
-        this.gemPath = gemPath;
-        this.requires = requires.build();
+        TreeSet<Doclet.Option> options = new TreeSet<>(Comparator.comparing(o -> o.getNames().get(0)));
+        options.addAll(optionsMap.values());
+        return options;
+    }
+
+    public void validate(Reporter reporter) {
+        if (!basedir.isPresent()) {
+            reporter.print(Diagnostic.Kind.WARNING, BASEDIR + " must be present for includes or file reference features to work properly.");
+        }
+        if (attributesFile.isPresent() && !attributesFile.get().canRead()) {
+            reporter.print(Diagnostic.Kind.WARNING, "Cannot read attributes file: " + attributesFile);
+        }
     }
 
     public Optional<File> overview() {
@@ -130,12 +194,16 @@ public class DocletOptions {
         return destdir;
     }
 
+    public Optional<File> preprocessDir() {
+        return preprocessDir;
+    }
+
     public Charset encoding() {
         return encoding;
     }
 
     public List<String> attributes() {
-        return attributes;
+        return Collections.unmodifiableList(attributes);
     }
 
     Optional<File> attributesFile() {
@@ -157,37 +225,100 @@ public class DocletOptions {
         return requires;
     }
 
-    public static boolean validOptions(String[][] options, DocErrorReporter errorReporter, StandardAdapter standardDoclet) {
-        DocletOptions docletOptions = new DocletOptions(options);
-
-        if (!docletOptions.baseDir().isPresent()) {
-            errorReporter.printWarning(BASEDIR + " must be present for includes or file reference features to work properly.");
-        }
-
-        Optional<File> attrsFile = docletOptions.attributesFile();
-        if (attrsFile.isPresent() && !attrsFile.get().canRead()) {
-            errorReporter.printWarning("Cannot read attributes file " + attrsFile.get());
-        }
-
-        return standardDoclet.validOptions(options, errorReporter);
+    public boolean preservePreprocessed() {
+        return preservePreprocessed;
     }
 
-    public static int optionLength(String option, StandardAdapter standardDoclet) {
-        if (BASEDIR.equals(option)) {
-            return 2;
+
+    private abstract class Option implements Doclet.Option {
+        protected Option(String name, String description, int argCount, String parameters) {
+            this(Collections.singletonList(name), description, argCount, parameters);
         }
-        if (ATTRIBUTE.equals(option) || ATTRIBUTE_LONG.equals(option)) {
-            return 2;
+
+        protected Option(List<String> names, String description, int argCount, String parameters) {
+            this.names = names;
+            this.description = description;
+            this.argCount = argCount;
+            this.parameters = parameters;
         }
-        if (ATTRIBUTES_FILE.equals(option)) {
-            return 2;
+
+        @Override
+        public final List<String> getNames() {
+            return names;
         }
-        if (GEM_PATH.equals(option)) {
-            return 2;
+
+        @Override
+        public final String getDescription() {
+            return description;
         }
-        if (REQUIRE.equals(option) || REQUIRE_LONG.equals(option)) {
-            return 2;
+
+        @Override
+        public final int getArgumentCount() {
+            return argCount;
         }
-        return standardDoclet.optionLength(option);
+
+        @Override
+        public final String getParameters() {
+            return parameters;
+        }
+
+        @Override
+        public Kind getKind() {
+            return Kind.STANDARD;
+        }
+
+        @Override
+        public final boolean process(String option, List<String> arguments) {
+            process(arguments);
+            return true;
+        }
+
+        protected abstract void process(List<String> arguments);
+
+        private final List<String> names;
+        private final String description;
+        private final int argCount;
+        private final String parameters;
+    }
+
+    private abstract class DelegatingOption implements Doclet.Option {
+        protected DelegatingOption(Doclet.Option delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public final List<String> getNames() {
+            return delegate.getNames();
+        }
+
+        @Override
+        public final String getDescription() {
+            return delegate.getDescription();
+        }
+
+        @Override
+        public final int getArgumentCount() {
+            return delegate.getArgumentCount();
+        }
+
+        @Override
+        public final String getParameters() {
+            return delegate.getParameters();
+        }
+
+        @Override
+        public final Kind getKind() {
+            return delegate.getKind();
+        }
+
+        @Override
+        public final boolean process(String option, List<String> arguments) {
+            process(arguments);
+            return delegate.process(option, arguments);
+        }
+
+        protected abstract void process(List<String> arguments);
+
+        private final Doclet.Option delegate;
     }
 }

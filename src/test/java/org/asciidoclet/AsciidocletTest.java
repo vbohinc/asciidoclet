@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,133 +15,121 @@
  */
 package org.asciidoclet;
 
-import com.sun.javadoc.DocErrorReporter;
-import com.sun.javadoc.LanguageVersion;
-import com.sun.javadoc.RootDoc;
-import org.asciidoclet.Asciidoclet;
-import org.asciidoclet.asciidoclet.DocletIterator;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import javax.lang.model.SourceVersion;
+import javax.tools.Diagnostic;
+import jdk.javadoc.doclet.Doclet;
+import jdk.javadoc.doclet.DocletEnvironment;
+import jdk.javadoc.doclet.Reporter;
 import org.asciidoclet.asciidoclet.DocletOptions;
-import org.asciidoclet.asciidoclet.DocletRenderer;
-import org.asciidoclet.asciidoclet.StandardAdapter;
 import org.asciidoclet.asciidoclet.Stylesheets;
 import org.junit.Before;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertNotNull;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * @author John Ericksen
  */
 public class AsciidocletTest {
-
-    private StandardAdapter mockAdapter;
-    private DocletIterator mockIterator;
+    private Reporter mockReporter;
     private Stylesheets mockStylesheets;
+    private Asciidoclet asciidoclet;
 
     @Before
     public void setup() {
-        mockAdapter = mock(StandardAdapter.class);
-        mockIterator = mock(DocletIterator.class);
+        mockReporter = mock(Reporter.class);
+
         mockStylesheets = mock(Stylesheets.class);
-        when(mockIterator.render(any(RootDoc.class), any( DocletRenderer.class))).thenReturn(true);
         when(mockStylesheets.copy()).thenReturn(true);
+
+        asciidoclet = new Asciidoclet();
+        asciidoclet.init(Locale.getDefault(), mockReporter, mockStylesheets);
     }
 
     @Test
     public void testVersion() {
-        assertEquals(LanguageVersion.JAVA_1_5, Asciidoclet.languageVersion());
+        assertEquals(SourceVersion.latestSupported(), asciidoclet.getSupportedSourceVersion());
     }
 
     @Test
     public void testIncludeBaseDirOptionLength() {
-        assertEquals(2, Asciidoclet.optionLength( DocletOptions.BASEDIR, mockAdapter));
-
-        verifyZeroInteractions(mockAdapter);
-        verifyZeroInteractions(mockIterator);
-    }
-
-    @Test
-    public void testOtherOptionLength() {
-        String testParameter = "parameter";
-        int returnSize = 42;
-
-        when(mockAdapter.optionLength(eq(testParameter))).thenReturn(returnSize);
-
-        assertEquals(returnSize, Asciidoclet.optionLength(testParameter, mockAdapter));
-        verifyZeroInteractions(mockIterator);
+        assertEquals(1, getOption(DocletOptions.BASEDIR).getArgumentCount());
     }
 
     @Test
     public void testValidBaseDirOption() {
-        DocErrorReporter mockReporter = mock(DocErrorReporter.class);
         String[][] inputOptions = new String[][]{{DocletOptions.BASEDIR, ""}};
-
-        when(mockAdapter.validOptions(inputOptions, mockReporter)).thenReturn(true);
-
-        assertTrue(Asciidoclet.validOptions(inputOptions, mockReporter, mockAdapter));
+        processOptions(inputOptions);
+        asciidoclet.validateOptions();
 
         verifyZeroInteractions(mockReporter);
-        verify(mockAdapter).validOptions(inputOptions, mockReporter);
-        verifyZeroInteractions(mockIterator);
-    }
-
-    @Test
-    public void testInvalidBaseDirOption() {
-        DocErrorReporter mockReporter = mock(DocErrorReporter.class);
-        String[][] inputOptions = new String[][]{{""}};
-
-        when(mockAdapter.validOptions(inputOptions, mockReporter)).thenReturn(true);
-
-        assertTrue(Asciidoclet.validOptions(inputOptions, mockReporter, mockAdapter));
-
-        verify(mockReporter).printWarning(anyString());
-        verify(mockAdapter).validOptions(inputOptions, mockReporter);
-        verifyZeroInteractions(mockIterator);
     }
 
     @Test
     public void testEmptyBaseDirOption() {
-        DocErrorReporter mockReporter = mock(DocErrorReporter.class);
-        String[][] inputOptions = new String[][]{{}};
+        String[][] inputOptions = new String[0][];
+        processOptions(inputOptions);
+        asciidoclet.validateOptions();
 
-        when(mockAdapter.validOptions(inputOptions, mockReporter)).thenReturn(true);
-
-        assertTrue(Asciidoclet.validOptions(inputOptions, mockReporter, mockAdapter));
-
-        verify(mockReporter).printWarning(anyString());
-        verify(mockAdapter).validOptions(inputOptions, mockReporter);
-        verifyZeroInteractions(mockIterator);
+        verify(mockReporter).print(eq(Diagnostic.Kind.WARNING), anyString());
     }
 
     @Test
     public void testStart() {
-        RootDoc mockDoc = mock(RootDoc.class);
+        DocletEnvironment mockEnvironment = mock(DocletEnvironment.class);
+        when(mockEnvironment.getSpecifiedElements()).thenReturn(Collections.emptySet());
+
         String[][] options = new String[][]{{DocletOptions.BASEDIR, "test"}};
+        processOptions(options);
 
-        when(mockDoc.options()).thenReturn(options);
-        when(mockAdapter.start(mockDoc)).thenReturn(true);
+        assertNotNull(asciidoclet.start(mockEnvironment));
 
-        assertTrue(new Asciidoclet(mockDoc, mockIterator, mockStylesheets).start(mockAdapter));
-
-        verify(mockAdapter).start(mockDoc);
-        verify(mockIterator).render(eq(mockDoc), any(DocletRenderer.class));
+        verify(mockEnvironment).getSpecifiedElements();
         verify(mockStylesheets).copy();
     }
 
     @Test
     public void testStylesheetOverride() {
-        RootDoc mockDoc = mock(RootDoc.class);
+        DocletEnvironment mockEnvironment = mock(DocletEnvironment.class);
+        when(mockEnvironment.getSpecifiedElements()).thenReturn(Collections.emptySet());
+
         String[][] options = new String[][]{{DocletOptions.STYLESHEET, "test"}};
+        processOptions(options);
 
-        when(mockDoc.options()).thenReturn(options);
-        when(mockAdapter.start(mockDoc)).thenReturn(true);
+        assertNotNull(asciidoclet.start(mockEnvironment));
 
-        assertTrue(new Asciidoclet(mockDoc, mockIterator, mockStylesheets).start(mockAdapter));
-
-        verify(mockAdapter).start(mockDoc);
-        verify(mockIterator).render(eq(mockDoc), any(DocletRenderer.class));
+        verify(mockEnvironment).getSpecifiedElements();
         verify(mockStylesheets, never()).copy();
+    }
+
+
+    private Doclet.Option getOption(String name) {
+        for (Doclet.Option option : asciidoclet.getSupportedOptions()) {
+            if (option.getNames().contains(name)) return option;
+        }
+        throw new IllegalArgumentException("Unknown option: " + name);
+    }
+
+    private void processOptions(String[][] options) {
+        for (String[] option : options) {
+            String optionName = option[0];
+            Doclet.Option docletOption = getOption(optionName);
+            int argCount = docletOption.getArgumentCount();
+            if (option.length != argCount + 1) throw new IllegalArgumentException("Invalid option: " + Arrays.toString(option) + "; this option requires " + argCount + " arguments");
+            List<String> args = Arrays.asList(option).subList(1, option.length);
+            docletOption.process(optionName, args);
+        }
     }
 }

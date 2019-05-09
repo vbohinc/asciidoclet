@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,15 @@
  */
 package org.asciidoclet.asciidoclet;
 
-import com.google.common.base.Optional;
 import com.google.common.io.ByteSink;
 import com.google.common.io.Files;
 import com.google.common.io.Resources;
-import com.sun.javadoc.DocErrorReporter;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import javax.tools.Diagnostic;
+import jdk.javadoc.doclet.Reporter;
 
 /**
  * Sets up a temporary directory containing output templates for use by Asciidoctor.
@@ -41,9 +41,9 @@ public class OutputTemplates {
         this.templateDir = templateDir;
     }
 
-    static Optional<OutputTemplates> create(DocErrorReporter errorReporter) {
+    static OutputTemplates create(Reporter errorReporter) {
         File dir = prepareTemplateDir(errorReporter);
-        return dir == null ? Optional.<OutputTemplates>absent() : Optional.of(new OutputTemplates(dir));
+        return dir == null ? null : new OutputTemplates(dir);
     }
 
     File templateDir() {
@@ -57,7 +57,7 @@ public class OutputTemplates {
         templateDir.delete();
     }
 
-    private static File prepareTemplateDir(DocErrorReporter errorReporter) {
+    private static File prepareTemplateDir(Reporter errorReporter) {
         // copy our template resources to the templateDir so Asciidoctor can use them.
         File templateDir = Files.createTempDir();
         try {
@@ -66,7 +66,7 @@ public class OutputTemplates {
             }
             return templateDir;
         } catch (IOException e) {
-            errorReporter.printWarning("Failed to prepare templates: " + e.getLocalizedMessage());
+            errorReporter.print(Diagnostic.Kind.WARNING, "Failed to prepare templates: " + e.getLocalizedMessage());
             return null;
         }
     }

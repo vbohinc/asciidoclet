@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,88 +15,93 @@
  */
 package org.asciidoclet.asciidoclet;
 
-import com.google.common.base.Optional;
-import com.sun.javadoc.Doc;
-import com.sun.javadoc.DocErrorReporter;
-import com.sun.javadoc.ParamTag;
-import com.sun.javadoc.Tag;
-import org.asciidoclet.asciidoclet.AsciidoctorRenderer;
-import org.asciidoclet.asciidoclet.DocletOptions;
-import org.asciidoclet.asciidoclet.OutputTemplates;
+import java.util.Collections;
+import java.util.List;
+import javax.lang.model.element.Name;
+import jdk.javadoc.doclet.DocletEnvironment;
+import com.sun.source.doctree.DocCommentTree;
+import com.sun.source.doctree.DocTree;
+import com.sun.source.doctree.DocTreeVisitor;
+import com.sun.source.doctree.IdentifierTree;
+import com.sun.source.doctree.ParamTree;
+import com.sun.source.doctree.TextTree;
+import com.sun.source.doctree.UnknownBlockTagTree;
 import org.asciidoctor.Asciidoctor;
 import org.asciidoctor.Options;
+import org.asciidoctor.OptionsBuilder;
+import org.asciidoctor.SafeMode;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentMatcher;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.argThat;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * @author John Ericksen
  */
 public class AsciidoctorRendererTest {
 
-    private static final String BASE_DIR = "testBaseDir";
-    private AsciidoctorRenderer renderer;
+    private DocletEnvironment mockEnvironment;
     private Asciidoctor mockAsciidoctor;
+    private Options options;
 
     @Before
     public void setup() {
+        mockEnvironment = mock(DocletEnvironment.class);
         mockAsciidoctor = mock(Asciidoctor.class);
-        renderer = new AsciidoctorRenderer( DocletOptions.NONE, mock(DocErrorReporter.class), Optional.<OutputTemplates>absent(), mockAsciidoctor);
-    }
-
-    @Test
-    public void testAtLiteralRender() {
-        Doc mockDoc = mock(Doc.class);
-        String convertedText = "Test";
-        String rawText = "@" + convertedText;
-
-        when(mockDoc.getRawCommentText()).thenReturn(rawText);
-        when(mockDoc.commentText()).thenReturn("input");
-        when(mockDoc.tags()).thenReturn(new Tag[]{});
-        when(mockAsciidoctor.render(anyString(), any(Options.class))).thenReturn("input");
-
-        renderer.renderDoc(mockDoc);
-        verify(mockDoc).setRawCommentText("{@literal @}" + convertedText);
-        verify(mockAsciidoctor).render(anyString(), any(Options.class));
+        options = OptionsBuilder.options().safe(SafeMode.SAFE).backend("html5").get();
     }
 
     @Test
     public void testTagRender() {
-        Doc mockDoc = mock(Doc.class);
-        Tag mockTag = mock(Tag.class);
-
+        String commentText = "input";
         String tagName = "tagName";
         String tagText = "tagText";
         String asciidoctorRenderedString = "rendered";
 
-        when(mockTag.name()).thenReturn(tagName);
-        when(mockTag.text()).thenReturn(tagText);
+        // comment body
+        TextTree mockCommentText = mockText(commentText);
 
-        when(mockDoc.getRawCommentText()).thenReturn("input");
-        when(mockDoc.commentText()).thenReturn("input");
-        when(mockDoc.tags()).thenReturn(new Tag[]{mockTag});
+        // some weird tag
+        TextTree mockTagText = mockText(tagText);
+        UnknownBlockTagTree mockUnknown = mockTree(UnknownBlockTagTree.class, DocTree.Kind.UNKNOWN_BLOCK_TAG, DocTreeVisitor::visitUnknownBlockTag);
+        when(mockUnknown.getTagName()).thenReturn(tagName);
+        doReturn(Collections.singletonList(mockTagText)).when(mockUnknown).getContent();
 
-        when(mockAsciidoctor.render(eq("input"), argThat(new OptionsMatcher(false)))).thenReturn("input");
+        // comment tree
+        DocCommentTree mockTree = mockCommentTree(Collections.singletonList(mockCommentText), Collections.singletonList(mockUnknown));
+
+        // asciidoctor does some transformations
+        when(mockAsciidoctor.render(eq(commentText), argThat(new OptionsMatcher(false)))).thenReturn(commentText);
         when(mockAsciidoctor.render(eq(tagText), argThat(new OptionsMatcher(true)))).thenReturn(asciidoctorRenderedString);
 
-        renderer.renderDoc(mockDoc);
+        // render
+        String rendered = newRenderer(mockTree).render();
 
-        verify(mockAsciidoctor).render(eq("input"), argThat(new OptionsMatcher(false)));
+        // check results
         verify(mockAsciidoctor).render(eq(tagText), argThat(new OptionsMatcher(true)));
-        verify(mockDoc).setRawCommentText("input");
-        verify(mockDoc).setRawCommentText("input\n" + tagName + " " + asciidoctorRenderedString + "\n");
+        verify(mockAsciidoctor).render(eq("input"), argThat(new OptionsMatcher(false)));
+        assertEquals(commentText + "\n@" + tagName + " " + asciidoctorRenderedString, rendered);
     }
 
     @Test
     public void testCleanInput() {
-        assertEquals("test1\ntest2", AsciidoctorRenderer.cleanJavadocInput("  test1\n test2\n"));
-        assertEquals("@", AsciidoctorRenderer.cleanJavadocInput("{@literal @}"));
-        assertEquals("/*\ntest\n*/", AsciidoctorRenderer.cleanJavadocInput("/*\ntest\n*\\/"));
-        assertEquals("&#64;", AsciidoctorRenderer.cleanJavadocInput("{at}"));
-        assertEquals("/", AsciidoctorRenderer.cleanJavadocInput("{slash}"));
+        assertEquals("test1\ntest2", DocCommentRenderer.cleanJavadocInput("  test1\n test2\n"));
+        assertEquals("@", DocCommentRenderer.cleanJavadocInput("{@literal @}"));
+        assertEquals("/*\ntest\n*/", DocCommentRenderer.cleanJavadocInput("/*\ntest\n*\\/"));
+        assertEquals("&#64;", DocCommentRenderer.cleanJavadocInput("{at}"));
+        assertEquals("/", DocCommentRenderer.cleanJavadocInput("{slash}"));
     }
 
     @Test
@@ -110,37 +115,96 @@ public class AsciidoctorRendererTest {
         String param2Text = "<" + param2Name + "> " + param2Desc;
         String sourceText = commentText + "\n@param " + param1Text + "\n@param " + param2Text;
 
-        Doc mockDoc = mock(Doc.class);
-        when(mockDoc.getRawCommentText()).thenReturn(sourceText);
-        when(mockDoc.commentText()).thenReturn(commentText);
-        Tag[] tags = new Tag[2];
-        ParamTag mockTag1 = mock(ParamTag.class);
-        when(mockTag1.name()).thenReturn("@param");
-        when(mockTag1.isTypeParameter()).thenReturn(true);
-        when(mockTag1.parameterName()).thenReturn(param1Name);
-        when(mockTag1.parameterComment()).thenReturn(param1Desc);
-        tags[0] = mockTag1;
-        ParamTag mockTag2 = mock(ParamTag.class);
-        when(mockTag2.name()).thenReturn("@param");
-        when(mockTag2.isTypeParameter()).thenReturn(true);
-        when(mockTag2.parameterName()).thenReturn(param2Name);
-        when(mockTag2.parameterComment()).thenReturn(param2Desc);
-        tags[1] = mockTag2;
-        when(mockDoc.tags()).thenReturn(tags);
-        when(mockAsciidoctor.render(eq(commentText), any(Options.class))).thenReturn(commentText);
-        when(mockAsciidoctor.render(eq(param2Desc), any(Options.class))).thenReturn(param2Desc);
+        // comment body
+        TextTree mockCommentText = mockText(commentText);
 
-        renderer.renderDoc(mockDoc);
+        // param 1
+        Name mockParam1Name = mock(Name.class);
+        when(mockParam1Name.toString()).thenReturn(param1Name);
+        IdentifierTree mockParam1Type = mockTree(IdentifierTree.class, DocTree.Kind.IDENTIFIER, DocTreeVisitor::visitIdentifier);
+        when(mockParam1Type.getName()).thenReturn(mockParam1Name);
 
+        ParamTree mockParam1 = mockTree(ParamTree.class, DocTree.Kind.PARAM, DocTreeVisitor::visitParam);
+        when(mockParam1.isTypeParameter()).thenReturn(true);
+        when(mockParam1.getName()).thenReturn(mockParam1Type);
+
+        // param 2
+        Name mockParam2Name = mock(Name.class);
+        when(mockParam2Name.toString()).thenReturn(param2Name);
+        IdentifierTree mockParam2Type = mockTree(IdentifierTree.class, DocTree.Kind.IDENTIFIER, DocTreeVisitor::visitIdentifier);
+        when(mockParam2Type.getName()).thenReturn(mockParam2Name);
+
+        ParamTree mockParam2 = mockTree(ParamTree.class, DocTree.Kind.PARAM, DocTreeVisitor::visitParam);
+        when(mockParam2.isTypeParameter()).thenReturn(true);
+        when(mockParam2.getName()).thenReturn(mockParam2Type);
+        TextTree mockParam2Desc = mockText(param2Desc);
+        doReturn(Collections.singletonList(mockParam2Desc)).when(mockParam2).getDescription();
+
+        // comment tree
+        DocCommentTree mockTree = mockCommentTree(Collections.singletonList(mockCommentText), List.of(mockParam1, mockParam2));
+
+        // asciidoctor just returns what it's given
+        when(mockAsciidoctor.render(anyString(), any(Options.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // render
+        String rendered = newRenderer(mockTree).render();
+
+        // check results
         verify(mockAsciidoctor).render(eq(commentText), argThat(new OptionsMatcher(false)));
         verify(mockAsciidoctor).render(eq(param2Desc), argThat(new OptionsMatcher(true)));
-        // fixture step
-        verify(mockDoc).setRawCommentText(eq(sourceText));
-        // result step
-        verify(mockDoc).setRawCommentText(eq(sourceText));
+        assertEquals(sourceText, rendered);
     }
 
-    private static final class OptionsMatcher extends ArgumentMatcher<Options> {
+
+    private DocCommentRenderer newRenderer(DocCommentTree commentTree) {
+        return new DocCommentRenderer(mockEnvironment, mockAsciidoctor, options, null, commentTree);
+    }
+
+    private <T extends DocTree> T mockTree(Class<T> treeType, DocTree.Kind kind, Visitor<T> visitor) {
+        T mockTree = mock(treeType);
+        when(mockTree.getKind()).thenReturn(kind);
+        doAnswer(new VisitorAdaptor<>(visitor)).when(mockTree).accept(any(), any());
+        return mockTree;
+    }
+
+    private TextTree mockText(String text) {
+        TextTree mockText = mockTree(TextTree.class, DocTree.Kind.TEXT, DocTreeVisitor::visitText);
+        when(mockText.getBody()).thenReturn(text);
+        return mockText;
+    }
+
+    private DocCommentTree mockCommentTree(List<DocTree> body, List<DocTree> tags) {
+        DocCommentTree mockTree = mockTree(DocCommentTree.class, DocTree.Kind.DOC_COMMENT, DocTreeVisitor::visitDocComment);
+        doReturn(body).when(mockTree).getFullBody();
+        doReturn(tags).when(mockTree).getBlockTags();
+        return mockTree;
+    }
+
+
+    private interface Visitor<T extends DocTree> {
+        public void visit(DocTreeVisitor<Object,Object> visitor, T node, Object arg);
+    }
+
+    private static final class VisitorAdaptor<T extends DocTree> implements Answer {
+        VisitorAdaptor(Visitor<T> visitor) {
+            this.visitor = visitor;
+        }
+
+        @Override
+        public final Object answer(InvocationOnMock invocation) {
+            @SuppressWarnings("unchecked")
+            T mock = (T)invocation.getMock();
+            Object[] args = invocation.getArguments();
+            @SuppressWarnings("unchecked")
+            DocTreeVisitor<Object,Object> docTreeVisitor = (DocTreeVisitor<Object,Object>)args[0];
+            visitor.visit(docTreeVisitor, mock, args[1]);
+            return null;
+        }
+
+        private final Visitor<T> visitor;
+    }
+
+    private static final class OptionsMatcher implements ArgumentMatcher<Options> {
 
         private final boolean inline;
 
@@ -149,8 +213,7 @@ public class AsciidoctorRendererTest {
         }
 
         @Override
-        public boolean matches(Object input) {
-            Options options = (Options) input;
+        public boolean matches(Options options) {
             return !inline || (options.map().get(Options.DOCTYPE).equals(AsciidoctorRenderer.INLINE_DOCTYPE));
         }
     }

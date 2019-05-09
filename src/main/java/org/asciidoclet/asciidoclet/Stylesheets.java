@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,15 @@
 package org.asciidoclet.asciidoclet;
 
 import com.google.common.io.Resources;
-import com.sun.javadoc.DocErrorReporter;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.URL;
+import javax.tools.Diagnostic;
+import jdk.javadoc.doclet.Reporter;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * Responsible for copying the appropriate stylesheet to the javadoc
@@ -31,30 +35,30 @@ public class Stylesheets {
     static final String JAVA8_STYLESHEET = "stylesheet8.css";
     static final String JAVA6_STYLESHEET = "stylesheet6.css";
     static final String CODERAY_STYLESHEET = "coderay-asciidoctor.css";
-    static final String OUTPUT_STYLESHEET = "stylesheet.css";
+    public static final String OUTPUT_STYLESHEET = "stylesheet.css";
 
     private final DocletOptions docletOptions;
-    private final DocErrorReporter errorReporter;
+    private final Reporter errorReporter;
 
-    public Stylesheets(DocletOptions options, DocErrorReporter errorReporter) {
+    public Stylesheets(DocletOptions options, Reporter errorReporter) {
         this.docletOptions = options;
         this.errorReporter = errorReporter;
     }
 
     public boolean copy() {
-        if (!docletOptions.destDir().isPresent()) {
+        if (!docletOptions.preprocessDir().isPresent()) {
             // standard doclet must have checked this by the time we are called
-            errorReporter.printError("Destination directory not specified, cannot copy stylesheet");
+            errorReporter.print(Diagnostic.Kind.ERROR, "Destination directory not specified, cannot copy stylesheet");
             return false;
         }
         String stylesheet = selectStylesheet(System.getProperty("java.version"));
-        File destDir = docletOptions.destDir().get();
+        File destDir = docletOptions.preprocessDir().get();
         try {
-            Resources.copy(Resources.getResource(stylesheet), new FileOutputStream(new File(destDir, OUTPUT_STYLESHEET)));
-            Resources.copy(Resources.getResource(CODERAY_STYLESHEET), new FileOutputStream(new File(destDir, CODERAY_STYLESHEET)));
+            Resources.copy(getResource(stylesheet), new FileOutputStream(new File(destDir, OUTPUT_STYLESHEET)));
+            Resources.copy(getResource(CODERAY_STYLESHEET), new FileOutputStream(new File(destDir, CODERAY_STYLESHEET)));
             return true;
         } catch (IOException e) {
-            errorReporter.printError(e.getLocalizedMessage());
+            errorReporter.print(Diagnostic.Kind.ERROR, e.getLocalizedMessage());
             return false;
         }
     }
@@ -66,11 +70,17 @@ public class Stylesheets {
         if (javaVersion.matches("^1\\.[78]\\D.*")) {
             return JAVA8_STYLESHEET;
         }
-        if (javaVersion.matches("^(9|10)(\\.)?.*")) {
+        if (javaVersion.matches("^(9|10|11)(\\.)?.*")) {
             return JAVA9_STYLESHEET;
         }
-        errorReporter.printWarning("Unrecognized Java version " + javaVersion + ", using Java 9 stylesheet");
+        errorReporter.print(Diagnostic.Kind.WARNING, "Unrecognized Java version " + javaVersion + ", using Java 9 stylesheet");
         // TODO: review this when Java 11 becomes available and/or make more configurable!
         return JAVA9_STYLESHEET;
+    }
+
+    private URL getResource(String resourceName) {
+        URL url = getClass().getClassLoader().getResource(resourceName);
+        checkArgument(url != null, "resource %s not found.", resourceName);
+        return url;
     }
 }

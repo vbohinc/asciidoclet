@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,28 +15,28 @@
  */
 package org.asciidoclet.asciidoclet;
 
-import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.io.Files;
-import com.sun.javadoc.DocErrorReporter;
-import org.asciidoctor.Asciidoctor;
-import org.asciidoctor.Attributes;
-import org.asciidoctor.OptionsBuilder;
-import org.asciidoctor.SafeMode;
-
 import java.io.File;
 import java.io.Reader;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import javax.tools.Diagnostic;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.io.Files;
+import jdk.javadoc.doclet.Reporter;
+import org.asciidoctor.Asciidoctor;
+import org.asciidoctor.Attributes;
+import org.asciidoctor.OptionsBuilder;
+import org.asciidoctor.SafeMode;
 
 class AttributesLoader {
     private final Asciidoctor asciidoctor;
     private final DocletOptions docletOptions;
-    private final DocErrorReporter errorReporter;
+    private final Reporter errorReporter;
 
-    AttributesLoader(Asciidoctor asciidoctor, DocletOptions docletOptions, DocErrorReporter errorReporter) {
+    AttributesLoader(Asciidoctor asciidoctor, DocletOptions docletOptions, Reporter errorReporter) {
         this.asciidoctor = asciidoctor;
         this.docletOptions = docletOptions;
         this.errorReporter = errorReporter;
@@ -73,7 +73,7 @@ class AttributesLoader {
             try {
                 return parseAttributes(Files.newReader(attrsFile.get(), docletOptions.encoding()), cmdlineAttrs);
             } catch (Exception e) {
-                errorReporter.printWarning("Cannot read attributes file: " + e);
+                errorReporter.print(Diagnostic.Kind.WARNING, "Cannot read attributes file: " + e);
             }
         }
         return cmdlineAttrs;

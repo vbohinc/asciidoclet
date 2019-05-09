@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,24 @@
  */
 package org.asciidoclet;
 
-import com.sun.javadoc.DocErrorReporter;
-import com.sun.javadoc.Doclet;
-import com.sun.javadoc.LanguageVersion;
-import com.sun.javadoc.RootDoc;
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.Collections;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+import javax.lang.model.SourceVersion;
+import javax.tools.Diagnostic;
+import javax.tools.DocumentationTool;
+import javax.tools.StandardJavaFileManager;
+import jdk.javadoc.doclet.Doclet;
+import jdk.javadoc.doclet.DocletEnvironment;
+import jdk.javadoc.doclet.Reporter;
+import jdk.javadoc.doclet.StandardDoclet;
 import org.asciidoclet.asciidoclet.AsciidoctorRenderer;
-import org.asciidoclet.asciidoclet.DocletIterator;
 import org.asciidoclet.asciidoclet.DocletOptions;
-import org.asciidoclet.asciidoclet.StandardAdapter;
 import org.asciidoclet.asciidoclet.Stylesheets;
 
 /**
@@ -171,114 +181,87 @@ import org.asciidoclet.asciidoclet.Stylesheets;
  * @since 0.1.0
  * @serial (or @serialField or @serialData)
  */
-public class Asciidoclet extends Doclet {
-
-    private final RootDoc rootDoc;
-    private final DocletOptions docletOptions;
-    private final DocletIterator iterator;
-    private final Stylesheets stylesheets;
-
-    public Asciidoclet(RootDoc rootDoc) {
-        this.rootDoc = rootDoc;
-        this.docletOptions = new DocletOptions(rootDoc);
-        this.iterator = new DocletIterator(docletOptions);
-        this.stylesheets = new Stylesheets(docletOptions, rootDoc);
+public class Asciidoclet implements Doclet {
+    @Override
+    public void init(Locale locale, Reporter reporter) {
+        init(locale, reporter, new Stylesheets(docletOptions, reporter));
     }
 
     // test use
-    Asciidoclet(RootDoc rootDoc, DocletIterator iterator, Stylesheets stylesheets) {
-        this.rootDoc = rootDoc;
-        this.docletOptions = new DocletOptions(rootDoc);
-        this.iterator = iterator;
+    void init(Locale locale, Reporter reporter, Stylesheets stylesheets) {
+        this.reporter = reporter;
+        this.standardDoclet.init(locale, reporter);
         this.stylesheets = stylesheets;
     }
 
-    /**
-     * .Example usage
-     * [source,java]
-     * exampleDeprecated("do not use");
-     *
-     * @deprecated for example purposes
-     * @exception Exception example
-     * @throws RuntimeException example
-     * @serialData something else
-     * @link Asciidoclet
-     */
-    public static void exampleDeprecated(String field) throws Exception {
-        //noop
+    @Override
+    public String getName() {
+        return "Asciidoclet";
     }
 
-    /**
-     * Sets the language version to Java 5.
-     *
-     * _Javadoc spec requirement._
-     *
-     * @return language version number
-     */
-    @SuppressWarnings("UnusedDeclaration")
-    public static LanguageVersion languageVersion() {
-        return LanguageVersion.JAVA_1_5;
+    @Override
+    public SourceVersion getSupportedSourceVersion() {
+        return SourceVersion.latestSupported();
     }
 
-    /**
-     * Sets the option length to the standard Javadoc option length.
-     *
-     * _Javadoc spec requirement._
-     *
-     * @param option input option
-     * @return length of required parameters
-     */
-    @SuppressWarnings("UnusedDeclaration")
-    public static int optionLength(String option) {
-        return optionLength(option, new StandardAdapter());
+    @Override
+    public Set<? extends Option> getSupportedOptions() {
+        return docletOptions.getSupportedOptions();
     }
 
-    /**
-     * The starting point of Javadoc render.
-     *
-     * _Javadoc spec requirement._
-     *
-     * @param rootDoc input class documents
-     * @return success
-     */
-    @SuppressWarnings("UnusedDeclaration")
-    public static boolean start(RootDoc rootDoc) {
-        return new Asciidoclet(rootDoc).start(new StandardAdapter());
-    }
+    @Override
+    public boolean run(DocletEnvironment environment) {
+        validateOptions();
 
-    /**
-     * Processes the input options by delegating to the standard handler.
-     *
-     * _Javadoc spec requirement._
-     *
-     * @param options input option array
-     * @param errorReporter error handling
-     * @return success
-     */
-    @SuppressWarnings("UnusedDeclaration")
-    public static boolean validOptions(String[][] options, DocErrorReporter errorReporter) {
-        return validOptions(options, errorReporter, new StandardAdapter());
-    }
-
-    static int optionLength(String option, StandardAdapter standardDoclet) {
-        return DocletOptions.optionLength(option, standardDoclet);
-    }
-
-    static boolean validOptions(String[][] options, DocErrorReporter errorReporter, StandardAdapter standardDoclet) {
-        return DocletOptions.validOptions(options, errorReporter, standardDoclet);
-    }
-
-    boolean start(StandardAdapter standardDoclet) {
-        return run(standardDoclet)
-                && postProcess();
-    }
-
-    private boolean run(StandardAdapter standardDoclet) {
-        AsciidoctorRenderer renderer = new AsciidoctorRenderer(docletOptions, rootDoc);
+        StandardJavaFileManager fileManager = (StandardJavaFileManager)environment.getJavaFileManager();;
         try {
-            return iterator.render(rootDoc, renderer) &&
-                    standardDoclet.start(rootDoc);
-        } finally {
+            // initialise output directories
+            File preprocessDir = docletOptions.preprocessDir().get();
+            if (!preprocessDir.isDirectory() && !preprocessDir.mkdirs()) throw new IOException("Cannot create directory: " + preprocessDir);
+            File destDir = docletOptions.destDir().get();
+            if (!destDir.isDirectory() && !destDir.mkdirs()) throw new IOException("Cannot create directory: " + destDir);
+
+            // do the rendering
+            reporter.print(Diagnostic.Kind.NOTE, "Pre-processing source, outputting to directory: " + preprocessDir);
+            fileManager.setLocation(DocumentationTool.Location.DOCUMENTATION_OUTPUT, Collections.singletonList(preprocessDir));
+            Optional<File> overview = start(environment);
+            if (overview == null) return false;
+
+            // post-process using the standard doclet
+            return StandardDocletReinvoker.invokeStandardDoclet(preprocessDir, overview, docletOptions, reporter);
+        }
+        catch (Exception e) {
+            StringWriter sw = new StringWriter();
+            e.printStackTrace(new PrintWriter(sw));
+            reporter.print(Diagnostic.Kind.ERROR, sw.toString());
+            return false;
+        }
+    }
+
+    /**
+     * Validate the doclet options.
+     */
+    void validateOptions() {
+        docletOptions.validate(reporter);
+    }
+
+    /**
+     * Start the rendering process for the elements specified in the environment.
+     * @param environment doclet environment.
+     * @return a non-null value containing the optional path to the overview file, or
+     *        null if the rendering process failed.
+     */
+    Optional<File> start(DocletEnvironment environment) {
+        Optional<File> overview = render(environment);
+        return overview != null && postProcess() ? overview : null;
+    }
+
+    private Optional<File> render(DocletEnvironment environment) {
+        AsciidoctorRenderer renderer = new AsciidoctorRenderer(environment, docletOptions, reporter);
+        try {
+            return renderer.renderAll() ? renderer.getOverview() : null;
+        }
+        finally {
             renderer.cleanup();
         }
     }
@@ -289,4 +272,10 @@ public class Asciidoclet extends Doclet {
         }
         return stylesheets.copy();
     }
+
+
+    private final StandardDoclet standardDoclet = new StandardDoclet();
+    private final DocletOptions docletOptions = new DocletOptions(standardDoclet);
+    private Reporter reporter;
+    private Stylesheets stylesheets;
 }

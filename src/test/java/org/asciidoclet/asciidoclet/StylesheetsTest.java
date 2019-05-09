@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
  */
 package org.asciidoclet.asciidoclet;
 
-import com.sun.javadoc.DocErrorReporter;
-import org.asciidoclet.asciidoclet.DocletOptions;
-import org.asciidoclet.asciidoclet.Stylesheets;
+import javax.tools.Diagnostic;
+import jdk.javadoc.doclet.Reporter;
+import jdk.javadoc.doclet.StandardDoclet;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -25,17 +25,33 @@ import static org.asciidoclet.asciidoclet.Stylesheets.JAVA6_STYLESHEET;
 import static org.asciidoclet.asciidoclet.Stylesheets.JAVA8_STYLESHEET;
 import static org.asciidoclet.asciidoclet.Stylesheets.JAVA9_STYLESHEET;
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 public class StylesheetsTest {
 
     private Stylesheets stylesheets;
-    private DocErrorReporter mockErrorReporter;
+    private Reporter mockErrorReporter;
 
     @Before
     public void setup() throws Exception {
-        mockErrorReporter = mock(DocErrorReporter.class);
-        stylesheets = new Stylesheets( DocletOptions.NONE, mockErrorReporter);
+        mockErrorReporter = mock(Reporter.class);
+        stylesheets = new Stylesheets(new DocletOptions(new StandardDoclet()), mockErrorReporter);
+    }
+
+    @Test
+    public void java11dot0dot2SelectStylesheet9() throws Exception {
+        assertEquals(JAVA9_STYLESHEET, stylesheets.selectStylesheet("11.0.2"));
+        verifyNoMoreInteractions(mockErrorReporter);
+    }
+
+    @Test
+    public void java11SelectStylesheet9() throws Exception {
+        assertEquals(JAVA9_STYLESHEET, stylesheets.selectStylesheet("11"));
+        verifyNoMoreInteractions(mockErrorReporter);
     }
 
     @Test
@@ -83,6 +99,6 @@ public class StylesheetsTest {
     @Test
     public void unknownJavaShouldSelectStylesheet8AndWarn() throws Exception {
         assertEquals(JAVA9_STYLESHEET, stylesheets.selectStylesheet("42.3.0_12"));
-        verify(mockErrorReporter).printWarning(anyString());
+        verify(mockErrorReporter).print(eq(Diagnostic.Kind.WARNING), anyString());
     }
 }

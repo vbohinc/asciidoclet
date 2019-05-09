@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 John Ericksen
+ * Copyright 2013-2019 John Ericksen
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,15 @@
  */
 package org.asciidoclet.asciidoclet;
 
-import com.sun.javadoc.Doc;
+import java.io.PrintWriter;
+import javax.lang.model.element.Element;
 
 /**
- * Interface used to render a Javadoc Doc
+ * Interface used to render a Javadoc document element
  *
  * @author John Ericksen
  */
 public interface DocletRenderer {
 
-    void renderDoc(Doc doc);
+    void renderDoc(Element e, PrintWriter pw);
 }
