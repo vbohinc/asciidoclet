@@ -45,14 +45,13 @@ class StandardDocletReinvoker {
      * Reads the command line that this Asciidoclet was invoked with, adds, modifies,and/or
      * removes arguments as needed, then executes the new command line as a sub-process.
      *
-     * @param preprocessDir directory contained generated pre-processed source.
-     * @param overview optional (possibly pre-processed) overview document.
      * @param docletOptions options for this doclet.
      * @param reporter message reporter
+     * @param overview optional (possibly pre-processed) overview document.
      * @return true if the standard doclet was invoked, false otherwise.
      * @throws Exception if an unexpected error occurs.
      */
-    static boolean invokeStandardDoclet(File preprocessDir, Optional<File> overview, DocletOptions docletOptions, Reporter reporter) throws Exception {
+    static boolean invokeStandardDoclet(DocletOptions docletOptions, Reporter reporter, Optional<File> overview) throws Exception {
         // get the command line we were invoked with
         Map.Entry<String,String[]> commandLine = getCommandLine();
         if (commandLine == null) {
@@ -62,11 +61,14 @@ class StandardDocletReinvoker {
 
         reporter.print(Diagnostic.Kind.NOTE, "Pre-processing complete, invoking standard doclet to generate final documentation...");
 
+        File preprocessDir = docletOptions.preprocessDir().get();
+        boolean isModuleSrc = docletOptions.moduleSrcDirs().isPresent();
+
         // generate a revised command line
         List<String> newCommandLine = new ArrayList<>(commandLine.getValue().length + 3);
         newCommandLine.add(commandLine.getKey());
         // set the source path to the pre-processed output directory
-        newCommandLine.add("-sourcepath");
+        newCommandLine.add(isModuleSrc ? DocletOptions.MODULE_SOURCE_PATH_LONG : DocletOptions.SOURCE_PATH_LONG);
         newCommandLine.add(preprocessDir.getAbsolutePath());
         // add main stylesheet if not previously specified
         if (!docletOptions.stylesheet().isPresent()) {
@@ -91,12 +93,20 @@ class StandardDocletReinvoker {
                     arg = arg.substring(0, sep);
                 }
             }
-            // remove existing sourcepath args
-            if (arg.equals("-sourcepath")) {
+            // remove existing source path args
+            if (arg.equals(DocletOptions.SOURCE_PATH)) {
                 oldArgs.next();
                 continue;
             }
-            if (arg.equals("--source-path")) {
+            if (arg.equals(DocletOptions.SOURCE_PATH_LONG)) {
+                if (option == null) oldArgs.next();
+                continue;
+            }
+            if (arg.equals(DocletOptions.MODULE_SOURCE_PATH)) {
+                oldArgs.next();
+                continue;
+            }
+            if (arg.equals(DocletOptions.MODULE_SOURCE_PATH_LONG)) {
                 if (option == null) oldArgs.next();
                 continue;
             }

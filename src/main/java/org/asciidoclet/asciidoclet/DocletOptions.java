@@ -18,6 +18,7 @@ package org.asciidoclet.asciidoclet;
 import java.io.File;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -46,6 +47,10 @@ public class DocletOptions {
     public static final String BASEDIR = "--base-dir";
     public static final String STYLESHEET = "-stylesheetfile";
     public static final String STYLESHEET_LONG = "--main-stylesheet";
+    public static final String MODULE_SOURCE_PATH_LONG = "--module-source-path";
+    public static final String MODULE_SOURCE_PATH = "-p";
+    public static final String SOURCE_PATH = "-sourcepath";
+    public static final String SOURCE_PATH_LONG = "--source-path";
     public static final String DESTDIR = "-d";
     public static final String ATTRIBUTE = "-a";
     public static final String ATTRIBUTE_LONG = "--attribute";
@@ -61,6 +66,8 @@ public class DocletOptions {
     private Optional<File> basedir = Optional.empty();
     private Optional<File> overview = Optional.empty();
     private Optional<File> stylesheet = Optional.empty();
+    private Optional<File[]> srcDirs = Optional.empty();
+    private Optional<File[]> moduleSrcDirs = Optional.empty();
     private Optional<File> destdir = Optional.empty();
     private Optional<File> preprocessDir = Optional.empty();
     private Optional<File> attributesFile = Optional.empty();
@@ -72,6 +79,25 @@ public class DocletOptions {
 
     public DocletOptions(StandardDoclet standardDoclet) {
         this.standardDoclet = standardDoclet;
+
+        // These source path options are, as standard, tool options rather than doclet options
+        // (see jdk.javadoc.internal.tool.ToolOption)
+        // It's a little bit ugly making them doclet options here but there's no other way for
+        // us to get access to the argument values
+        Doclet.Option srcDirOption = new Option(List.of(SOURCE_PATH_LONG, SOURCE_PATH), "Specify where to find source files", 1, "<path>") {
+            @Override
+            protected void process(List<String> arguments) {
+                String[] paths = arguments.get(0).split(File.pathSeparator);
+                srcDirs = Optional.of(Arrays.stream(paths).map(File::new).toArray(File[]::new));
+            }
+        };
+        Doclet.Option moduleDirOption = new Option(List.of(MODULE_SOURCE_PATH_LONG, MODULE_SOURCE_PATH), "Specify where to find application modules", 1, "<path>") {
+            @Override
+            protected void process(List<String> arguments) {
+                String[] paths = arguments.get(0).split(File.pathSeparator);
+                moduleSrcDirs = Optional.of(Arrays.stream(paths).map(File::new).toArray(File[]::new));
+            }
+        };
 
         Doclet.Option baseDirOption = new Option(BASEDIR, "Sets the base directory that will be used to resolve relative path names in Asciidoc include:: directives", 1, "<directory>") {
             @Override
@@ -111,6 +137,10 @@ public class DocletOptions {
         };
 
         TreeMap<String,Doclet.Option> asciidocletOptions = new TreeMap<>();
+        asciidocletOptions.put(SOURCE_PATH, srcDirOption);
+        asciidocletOptions.put(SOURCE_PATH_LONG, srcDirOption);
+        asciidocletOptions.put(MODULE_SOURCE_PATH, moduleDirOption);
+        asciidocletOptions.put(MODULE_SOURCE_PATH_LONG, moduleDirOption);
         asciidocletOptions.put(BASEDIR, baseDirOption);
         asciidocletOptions.put(ATTRIBUTE, attributeOption);
         asciidocletOptions.put(ATTRIBUTE_LONG, attributeOption);
@@ -188,6 +218,14 @@ public class DocletOptions {
 
     public Optional<File> baseDir() {
         return basedir;
+    }
+
+    public Optional<File[]> srcDirs() {
+        return srcDirs;
+    }
+
+    public Optional<File[]> moduleSrcDirs() {
+        return moduleSrcDirs;
     }
 
     public Optional<File> destDir() {
@@ -283,6 +321,7 @@ public class DocletOptions {
 
     private abstract class DelegatingOption implements Doclet.Option {
         protected DelegatingOption(Doclet.Option delegate) {
+            if (delegate == null) throw new NullPointerException("delegate is null");
             this.delegate = delegate;
         }
 

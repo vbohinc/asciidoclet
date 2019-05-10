@@ -89,28 +89,28 @@ public class AsciidocletTest {
     @Test
     public void testStart() {
         DocletEnvironment mockEnvironment = mock(DocletEnvironment.class);
-        when(mockEnvironment.getSpecifiedElements()).thenReturn(Collections.emptySet());
+        when(mockEnvironment.getIncludedElements()).thenReturn(Collections.emptySet());
 
         String[][] options = new String[][]{{DocletOptions.BASEDIR, "test"}};
         processOptions(options);
 
         assertNotNull(asciidoclet.start(mockEnvironment));
 
-        verify(mockEnvironment).getSpecifiedElements();
+        verify(mockEnvironment).getIncludedElements();
         verify(mockStylesheets).copy();
     }
 
     @Test
     public void testStylesheetOverride() {
         DocletEnvironment mockEnvironment = mock(DocletEnvironment.class);
-        when(mockEnvironment.getSpecifiedElements()).thenReturn(Collections.emptySet());
+        when(mockEnvironment.getIncludedElements()).thenReturn(Collections.emptySet());
 
         String[][] options = new String[][]{{DocletOptions.STYLESHEET, "test"}};
         processOptions(options);
 
         assertNotNull(asciidoclet.start(mockEnvironment));
 
-        verify(mockEnvironment).getSpecifiedElements();
+        verify(mockEnvironment).getIncludedElements();
         verify(mockStylesheets, never()).copy();
     }
 

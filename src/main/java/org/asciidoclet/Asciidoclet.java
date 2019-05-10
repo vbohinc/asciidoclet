@@ -228,7 +228,7 @@ public class Asciidoclet implements Doclet {
             if (overview == null) return false;
 
             // post-process using the standard doclet
-            return StandardDocletReinvoker.invokeStandardDoclet(preprocessDir, overview, docletOptions, reporter);
+            return StandardDocletReinvoker.invokeStandardDoclet(docletOptions, reporter, overview);
         }
         catch (Exception e) {
             StringWriter sw = new StringWriter();

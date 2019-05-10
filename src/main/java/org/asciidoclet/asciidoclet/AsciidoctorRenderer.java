@@ -32,6 +32,7 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.ModuleElement;
 import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
@@ -99,13 +100,13 @@ public class AsciidoctorRenderer implements DocletRenderer {
 
     private final DocletEnvironment environment;
     private final Elements elementUtils;
+    private final DocletOptions docletOptions;
     private final Reporter reporter;
     private final StandardJavaFileManager fileManager;
     private final Asciidoctor asciidoctor;
     private final OutputTemplates templates;
     private final Options options;
     private Optional<File> overview;
-    private final Charset encoding;
 
 
     public AsciidoctorRenderer(DocletEnvironment environment, DocletOptions docletOptions, Reporter reporter) {
@@ -118,14 +119,13 @@ public class AsciidoctorRenderer implements DocletRenderer {
     protected AsciidoctorRenderer(DocletEnvironment environment, DocletOptions docletOptions, Reporter reporter, OutputTemplates templates, Asciidoctor asciidoctor) {
         this.environment = environment;
         this.elementUtils = environment.getElementUtils();
+        this.docletOptions = docletOptions;
         this.reporter = reporter;
         this.fileManager = (StandardJavaFileManager)environment.getJavaFileManager();
         this.asciidoctor = asciidoctor;
         this.templates = templates;
         this.options = buildOptions(docletOptions, reporter);
-
         this.overview = docletOptions.overview();
-        this.encoding = docletOptions.encoding();
     }
 
     private Options buildOptions(DocletOptions docletOptions, Reporter errorReporter) {
@@ -159,7 +159,7 @@ public class AsciidoctorRenderer implements DocletRenderer {
     public boolean renderAll() {
         if (!processOverview()) return false;
 
-        Set<? extends Element> elements = environment.getSpecifiedElements();
+        Set<? extends Element> elements = environment.getIncludedElements();
         for (PackageElement packageElement : ElementFilter.packagesIn(elements)) {
             renderPackage(packageElement);
         }
@@ -212,7 +212,7 @@ public class AsciidoctorRenderer implements DocletRenderer {
             File overviewFile = overview.get();
             if (isAsciidocFile(overviewFile.getName())) {
                 try {
-                    String overviewContent = Files.toString(overviewFile, encoding);
+                    String overviewContent = Files.toString(overviewFile, docletOptions.encoding());
                     String rendered = DocCommentRenderer.render(asciidoctor, options, overviewContent);
                     FileObject f = fileManager.getFileForOutput(DocumentationTool.Location.DOCUMENTATION_OUTPUT, "", OVERVIEW_HTML, null);
                     try (PrintWriter fw = new PrintWriter(new OutputStreamWriter(f.openOutputStream()))) {
@@ -239,13 +239,46 @@ public class AsciidoctorRenderer implements DocletRenderer {
     }
 
     /**
-     * Renders comments in the classes contained in the specified package.
+     * Copies the package-info.java or package.html file, if found, from a source directory to the
+     * pre-processing directory.
+     *
+     * Arguably we could look for Asciidoctor variants of these files and render them but currently
+     * we don't do that.
      * @param pe a document package element.
      */
     private void renderPackage(PackageElement pe) {
-        for (TypeElement typeElement : ElementFilter.typesIn(pe.getEnclosedElements())) {
-            renderClass(typeElement);
+        File[] srcDirs;
+        if (docletOptions.moduleSrcDirs().isPresent()) {
+            srcDirs = docletOptions.moduleSrcDirs().get();
         }
+        else if (docletOptions.srcDirs().isPresent()) {
+            srcDirs = docletOptions.srcDirs().get();
+        }
+        else {
+            srcDirs = new File[] { new File(".").getAbsoluteFile() };
+        }
+        String packagePath = pe.getQualifiedName().toString().replace(".", File.separator);
+        File preprocessDir = docletOptions.preprocessDir().get();
+        for (File srcDir : srcDirs) {
+            if (copyFile(srcDir, packagePath, "package-info.java", preprocessDir) || copyFile(srcDir, packagePath, "package.html", preprocessDir))
+                break;
+        }
+    }
+
+    private boolean copyFile(File srcDir, String packagePath, String filename, File destDir) {
+        File filePath = new File(new File(srcDir, packagePath), filename);
+        if (filePath.isFile()) {
+            File destPath = new File(new File(destDir, packagePath), filename);
+            try {
+                if (!destPath.getParentFile().mkdirs()) throw new IOException("Cannot create directory: " + destPath.getParentFile());
+                Files.copy(filePath, destPath);
+                return true;
+            }
+            catch (IOException ioe) {
+                throw new RuntimeException("Unable to copy " + filePath + " to " + destPath, ioe);
+            }
+        }
+        return false;
     }
 
     /**
