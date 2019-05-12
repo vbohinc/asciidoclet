@@ -272,6 +272,8 @@ public class AsciidoctorRenderer implements DocletRenderer {
      * @param me a document module element.
      */
     private void renderModule(ModuleElement me) {
+        if (me.isUnnamed()) return;
+
         File[] srcDirs = getSourceDirs(me.getQualifiedName().toString());
         File preprocessDir = docletOptions.preprocessDir().get();
         for (File srcDir : srcDirs) {
