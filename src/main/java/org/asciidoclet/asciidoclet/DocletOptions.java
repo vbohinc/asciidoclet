@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,10 +48,11 @@ public class DocletOptions {
     public static final String BASEDIR = "--base-dir";
     public static final String STYLESHEET = "-stylesheetfile";
     public static final String STYLESHEET_LONG = "--main-stylesheet";
-    public static final String MODULE_SOURCE_PATH_LONG = "--module-source-path";
-    public static final String MODULE_SOURCE_PATH = "-p";
     public static final String SOURCE_PATH = "-sourcepath";
     public static final String SOURCE_PATH_LONG = "--source-path";
+    public static final String MODULE_SOURCE_PATH_LONG = "--module-source-path";
+    public static final String MODULE_SOURCE_PATH = "-p";
+    public static final String PATCH_MODULE = "--patch-module";
     public static final String DESTDIR = "-d";
     public static final String ATTRIBUTE = "-a";
     public static final String ATTRIBUTE_LONG = "--attribute";
@@ -68,6 +70,7 @@ public class DocletOptions {
     private Optional<File> stylesheet = Optional.empty();
     private Optional<File[]> srcDirs = Optional.empty();
     private Optional<File[]> moduleSrcDirs = Optional.empty();
+    private Map<String,File[]> patchModuleDirs = new HashMap<>();
     private Optional<File> destdir = Optional.empty();
     private Optional<File> preprocessDir = Optional.empty();
     private Optional<File> attributesFile = Optional.empty();
@@ -96,6 +99,22 @@ public class DocletOptions {
             protected void process(List<String> arguments) {
                 String[] paths = arguments.get(0).split(File.pathSeparator);
                 moduleSrcDirs = Optional.of(Arrays.stream(paths).map(File::new).toArray(File[]::new));
+            }
+        };
+        Doclet.Option patchModuleDirOption = new Option(PATCH_MODULE, "Override or augment a module with classes and resources in JAR files or directories", 1, "<module>=<file>(:<file>)*") {
+            @Override
+            public Kind getKind() {
+                return Kind.EXTENDED;
+            }
+            @Override
+            protected void process(List<String> arguments) {
+                String arg = arguments.get(0);
+                int i = arg.indexOf('=');
+                if (i < 0) return;
+                String module = arg.substring(0, i);
+                String[] paths = arg.substring(i + 1).split(File.pathSeparator);
+                File[] patchDirs = Arrays.stream(paths).map(File::new).toArray(File[]::new);
+                patchModuleDirs.put(module, patchDirs);
             }
         };
 
@@ -141,6 +160,7 @@ public class DocletOptions {
         asciidocletOptions.put(SOURCE_PATH_LONG, srcDirOption);
         asciidocletOptions.put(MODULE_SOURCE_PATH, moduleDirOption);
         asciidocletOptions.put(MODULE_SOURCE_PATH_LONG, moduleDirOption);
+        asciidocletOptions.put(PATCH_MODULE, patchModuleDirOption);
         asciidocletOptions.put(BASEDIR, baseDirOption);
         asciidocletOptions.put(ATTRIBUTE, attributeOption);
         asciidocletOptions.put(ATTRIBUTE_LONG, attributeOption);
@@ -226,6 +246,14 @@ public class DocletOptions {
 
     public Optional<File[]> moduleSrcDirs() {
         return moduleSrcDirs;
+    }
+
+    public File[] modulePatchDirs(String module) {
+        return patchModuleDirs.get(module);
+    }
+
+    public Map<String,File[]> allModulePatchDirs() {
+        return Collections.unmodifiableMap(patchModuleDirs);
     }
 
     public Optional<File> destDir() {

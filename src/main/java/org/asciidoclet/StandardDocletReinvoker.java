@@ -61,14 +61,24 @@ class StandardDocletReinvoker {
 
         reporter.print(Diagnostic.Kind.NOTE, "Pre-processing complete, invoking standard doclet to generate final documentation...");
 
-        File preprocessDir = docletOptions.preprocessDir().get();
-        boolean isModuleSrc = docletOptions.moduleSrcDirs().isPresent();
+        // figure out what source directories we've been given
+        boolean hasModuleSrc = docletOptions.moduleSrcDirs().isPresent();
+        File[] srcDirs = hasModuleSrc
+            ? docletOptions.moduleSrcDirs().get()
+            : docletOptions.srcDirs().isPresent() ? docletOptions.srcDirs().get() : new File[] { new File(".").getAbsoluteFile() };
+        List<File> allSrcDirs = new ArrayList<>();
+        for (File[] patchDirs : docletOptions.allModulePatchDirs().values()) {
+            allSrcDirs.addAll(Arrays.asList(patchDirs));
+        }
+        allSrcDirs.addAll(Arrays.asList(srcDirs));
+        srcDirs = allSrcDirs.toArray(new File[allSrcDirs.size()]);
 
         // generate a revised command line
         List<String> newCommandLine = new ArrayList<>(commandLine.getValue().length + 3);
         newCommandLine.add(commandLine.getKey());
         // set the source path to the pre-processed output directory
-        newCommandLine.add(isModuleSrc ? DocletOptions.MODULE_SOURCE_PATH_LONG : DocletOptions.SOURCE_PATH_LONG);
+        newCommandLine.add(hasModuleSrc ? DocletOptions.MODULE_SOURCE_PATH_LONG : DocletOptions.SOURCE_PATH_LONG);
+        File preprocessDir = docletOptions.preprocessDir().get();
         newCommandLine.add(preprocessDir.getAbsolutePath());
         // add main stylesheet if not previously specified
         if (!docletOptions.stylesheet().isPresent()) {
@@ -93,7 +103,7 @@ class StandardDocletReinvoker {
                     arg = arg.substring(0, sep);
                 }
             }
-            // remove existing source path args
+            // remove any source/module/patch path args
             if (arg.equals(DocletOptions.SOURCE_PATH)) {
                 oldArgs.next();
                 continue;
@@ -108,6 +118,16 @@ class StandardDocletReinvoker {
             }
             if (arg.equals(DocletOptions.MODULE_SOURCE_PATH_LONG)) {
                 if (option == null) oldArgs.next();
+                continue;
+            }
+            if (arg.equals(DocletOptions.PATCH_MODULE)) {
+                oldArgs.next();
+                continue;
+            }
+            // don't convert destination directories
+            if (arg.equals("-d")) {
+                newCommandLine.add(arg);
+                newCommandLine.add(oldArgs.next());
                 continue;
             }
             // remove existing overview option
@@ -130,7 +150,7 @@ class StandardDocletReinvoker {
                 }
                 continue;
             }
-            newCommandLine.add(arg);
+            newCommandLine.add(mapFilePath(arg, srcDirs, preprocessDir));
         }
 
         // start a new javadoc sub-process with the generated command line
@@ -178,6 +198,42 @@ class StandardDocletReinvoker {
         // but that does not delineate single args containing spaces
 
         return null;
+    }
+
+    /**
+     * Map a path residing in a source directory to the pre-process output directory.
+     * Does nothing to the path if it's determined not to reside in a source directory.
+     * @param arg a command line argument, which might be a file or directory path.
+     * @param srcDirs the available source directories.
+     * @param preprocessDir the pre-processed output directory.
+     * @return a possibly path-mapped output argument.
+     */
+    private static String mapFilePath(String arg, File[] srcDirs, File preprocessDir) {
+        // maybe it's not actually a path
+        if (arg.startsWith("-")) return arg;
+        File f = new File(arg).getAbsoluteFile();
+        if (!f.exists()) return arg;
+
+        String relativePath = getRelativePath(f, srcDirs);
+        if (relativePath != null) {
+            return new File(preprocessDir, relativePath).getAbsolutePath();
+        }
+        return arg;
+    }
+
+    private static String getRelativePath(File f, File[] srcDirs) {
+        for (File srcDir : srcDirs) {
+            if (isInSubdirectory(f, srcDir)) {
+                return f.getAbsolutePath().substring(srcDir.getAbsolutePath().length() + 1);
+            }
+        }
+        return null;
+    }
+
+    private static boolean isInSubdirectory(File f, File dir) {
+        if (f == null) return false;
+        if (f.equals(dir)) return true;
+        return isInSubdirectory(f.getParentFile(), dir);
     }
 
     /**

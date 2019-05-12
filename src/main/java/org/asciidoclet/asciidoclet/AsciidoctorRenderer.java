@@ -20,13 +20,14 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
@@ -160,6 +161,9 @@ public class AsciidoctorRenderer implements DocletRenderer {
         if (!processOverview()) return false;
 
         Set<? extends Element> elements = environment.getIncludedElements();
+        for (ModuleElement moduleElement : ElementFilter.modulesIn(elements)) {
+            renderModule(moduleElement);
+        }
         for (PackageElement packageElement : ElementFilter.packagesIn(elements)) {
             renderPackage(packageElement);
         }
@@ -239,14 +243,11 @@ public class AsciidoctorRenderer implements DocletRenderer {
     }
 
     /**
-     * Copies the package-info.java or package.html file, if found, from a source directory to the
-     * pre-processing directory.
-     *
-     * Arguably we could look for Asciidoctor variants of these files and render them but currently
-     * we don't do that.
-     * @param pe a document package element.
+     * Get the source directories available to us.
+     * @param module an optional module name to add source paths for.
+     * @return an array of directory paths.
      */
-    private void renderPackage(PackageElement pe) {
+    private File[] getSourceDirs(String module) {
         File[] srcDirs;
         if (docletOptions.moduleSrcDirs().isPresent()) {
             srcDirs = docletOptions.moduleSrcDirs().get();
@@ -257,9 +258,40 @@ public class AsciidoctorRenderer implements DocletRenderer {
         else {
             srcDirs = new File[] { new File(".").getAbsoluteFile() };
         }
-        String packagePath = pe.getQualifiedName().toString().replace(".", File.separator);
+        if (module != null) {
+            File[] patchDirs = docletOptions.modulePatchDirs(module);
+            if (patchDirs != null) {
+                srcDirs = Stream.concat(Arrays.stream(patchDirs), Arrays.stream(srcDirs)).toArray(File[]::new);
+            }
+        }
+        return srcDirs;
+    }
+
+    /**
+     * Copies the module-info.java, if found, from a source directory to the pre-processing directory.
+     * @param me a document module element.
+     */
+    private void renderModule(ModuleElement me) {
+        File[] srcDirs = getSourceDirs(me.getQualifiedName().toString());
         File preprocessDir = docletOptions.preprocessDir().get();
         for (File srcDir : srcDirs) {
+            if (copyFile(srcDir, ".", "module-info.java", preprocessDir)) return;
+        }
+        reporter.print(Diagnostic.Kind.ERROR, "Given a module element but couldn't find module-info.java!?");
+    }
+
+    /**
+     * Copies the package-info.java or package.html file, if found, from a source directory to the
+     * pre-processing directory.
+     *
+     * Arguably we could look for Asciidoctor variants of these files and render them but currently
+     * we don't do that.
+     * @param pe a document package element.
+     */
+    private void renderPackage(PackageElement pe) {
+        String packagePath = pe.getQualifiedName().toString().replace(".", File.separator);
+        File preprocessDir = docletOptions.preprocessDir().get();
+        for (File srcDir : getSourceDirs(null)) {
             if (copyFile(srcDir, packagePath, "package-info.java", preprocessDir) || copyFile(srcDir, packagePath, "package.html", preprocessDir))
                 break;
         }
@@ -270,7 +302,8 @@ public class AsciidoctorRenderer implements DocletRenderer {
         if (filePath.isFile()) {
             File destPath = new File(new File(destDir, packagePath), filename);
             try {
-                if (!destPath.getParentFile().mkdirs()) throw new IOException("Cannot create directory: " + destPath.getParentFile());
+                File parentDir = destPath.getCanonicalFile().getParentFile();
+                if (!parentDir.isDirectory() && !parentDir.mkdirs()) throw new IOException("Cannot create directory: " + parentDir);
                 Files.copy(filePath, destPath);
                 return true;
             }
