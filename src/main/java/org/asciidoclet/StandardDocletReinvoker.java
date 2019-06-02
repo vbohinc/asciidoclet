@@ -15,7 +15,10 @@
  */
 package org.asciidoclet;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.FileVisitResult;
@@ -28,6 +31,7 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -190,6 +194,14 @@ class StandardDocletReinvoker {
         ProcessHandle.Info processInfo = ProcessHandle.current().info();
         Optional<String> command = processInfo.command();
         Optional<String[]> args = processInfo.arguments();
+
+        if (command.isPresent() && !args.isPresent()) {
+            // the native linux implementation in ProcessHandleImpl is kinda stupid
+            // it doesn't handle command line lengths greater than pageSize (typically 4096) bytes
+            // so let's try reading from /proc directly ourselves
+            args = getCommandLineArgsDirectlyFromProc();
+        }
+
         if (command.isPresent() && args.isPresent()) {
             return new AbstractMap.SimpleEntry<>(command.get(), expand(args.get()));
         }
@@ -198,6 +210,50 @@ class StandardDocletReinvoker {
         // but that does not delineate single args containing spaces
 
         return null;
+    }
+
+    private static Optional<String[]> getCommandLineArgsDirectlyFromProc() throws IOException {
+        long pid = ProcessHandle.current().pid();
+        try (BufferedInputStream in = new BufferedInputStream(new FileInputStream("/proc/" + pid + "/cmdline"))) {
+            // command line args are delimitered with null bytes
+            // skip over the first arg, which is the command name
+            int b;
+            do {
+                b = in.read();
+                // unexpected EOF, return nothing
+                if (b == -1) return Optional.empty();
+            }
+            while (b != 0);
+
+            // build argument list from the remainder of input
+            List<String> args = new LinkedList<>();
+            StringBuilder buf = new StringBuilder();
+            while (true) {
+                b = in.read();
+                if (b == 0) {
+                    // arg delimiter, add buffered string to list
+                    if (buf.length() > 0) {
+                        args.add(buf.toString());
+                        buf.setLength(0);
+                    }
+                }
+                else if (b == -1) {
+                    return buf.length() == 0
+                        // appropriately null terminated, return the argument list
+                        ? Optional.of(args.toArray(new String[args.size()]))
+                        // command line is truncated, don't return anything
+                        : Optional.empty();
+                }
+                else {
+                    // add character to buffer
+                    buf.append((char)b);
+                }
+            }
+        }
+        catch (FileNotFoundException fnfe) {
+            // also thrown if permission denied
+            return Optional.empty();
+        }
     }
 
     /**
