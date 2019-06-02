@@ -400,7 +400,7 @@ public class AsciidoctorRenderer implements DocletRenderer {
                     renderMethod((ExecutableElement)e, pw);
                     break;
                 case FIELD:
-                    renderField((VariableElement)e, pw);
+                    renderField((VariableElement)e, pw, te.getKind() == ElementKind.INTERFACE);
                     break;
                 default:
                     reporter.print(Diagnostic.Kind.WARNING, "Unsupported element type " + e.getKind() + " in class " + e);
@@ -468,7 +468,7 @@ public class AsciidoctorRenderer implements DocletRenderer {
      * @param ve a document variable element.
      * @param pw rendered output target.
      */
-    private void renderField(VariableElement ve, PrintWriter pw) {
+    private void renderField(VariableElement ve, PrintWriter pw, boolean isInterface) {
         renderDoc(ve, pw);
         printModifiers(ve, pw);
         pw.print(ve.asType());
@@ -485,6 +485,31 @@ public class AsciidoctorRenderer implements DocletRenderer {
             }
             else {
                 pw.print(value);
+                if (ve.asType().getKind() == TypeKind.LONG) {
+                    // handle large constants that may be automatically coerced to integers
+                    pw.print("L");
+                }
+            }
+        }
+        else if (isInterface) {
+            // constants in interfaces need initialising
+            pw.print(" = ");
+            switch (ve.asType().getKind()) {
+                case INT:
+                case LONG:
+                case BYTE:
+                case SHORT:
+                case CHAR:
+                case FLOAT:
+                case DOUBLE:
+                    pw.print("0");
+                    break;
+                case BOOLEAN:
+                    pw.print("false");
+                    break;
+                default:
+                    pw.print("null");
+                    break;
             }
         }
         pw.println(';');
